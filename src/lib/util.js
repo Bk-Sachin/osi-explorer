@@ -78,8 +78,9 @@ export function useProgress(key, duration, enabled = true, paused = false) {
 /* ---------------- packet journey timing (at 1× speed) ---------------- */
 export const SEG_MS = 2200;   // travel time per link
 export const ARRIVE_MS = 1200; // arrival pulse
-// a pause at a device lasts long enough to read its caption (~4 words a second)
-export const holdMs = (text = '') => Math.min(8000, Math.max(2800, text.split(/\s+/).length * 250));
+// A stop at a device lasts long enough for a beginner to read its caption:
+// ~2.5 words a second, never less than 4 s. (Pause freezes it; the notes panel keeps the text.)
+export const holdMs = (text = '') => Math.min(12000, Math.max(4000, text.split(/\s+/).length * 400));
 
 export function longestPath(scn, pkt) {
   return [].concat(pkt.to).map((t) => route(scn, pkt.from, t)).sort((a, b) => b.length - a.length)[0];
@@ -91,31 +92,18 @@ export function holdText(scn, pkt, node) {
   return pkt.hold?.[node] || HOLD_TEXT[scn.nodes[node]?.type] || 'Forwarding…';
 }
 
-// A device's explanation gets full reading time the first time it appears in a lesson,
-// and a short pause after that (it's the same text you've already read).
-export const REPEAT_HOLD_MS = 2200;
 const jcache = new WeakMap();
-function buildJourneys(scn) {
-  const seen = new Set();
-  for (const pkt of scn.packets || []) {
-    const path = longestPath(scn, pkt);
-    const hops = path.length - 1;
-    const stopAt = pkt.lost ? (pkt.lostAt ?? 0.55) * hops : hops; // in segments
-    const full = Math.floor(stopAt);
-    const holds = path.slice(1, -1).map((n, i) => {
-      const text = holdText(scn, pkt, n);
-      if (i >= full) return holdMs(text); // never reached (lost before it)
-      const first = !seen.has(text);
-      seen.add(text);
-      return first ? holdMs(text) : REPEAT_HOLD_MS;
-    });
-    const travel = stopAt * SEG_MS + holds.slice(0, Math.min(full, hops - 1)).reduce((a, b) => a + b, 0);
-    jcache.set(pkt, { path, hops, stopAt, holds, total: travel + ARRIVE_MS, travel });
-  }
-}
 export function journey(scn, pkt) {
-  if (!jcache.has(pkt)) buildJourneys(scn);
-  return jcache.get(pkt);
+  if (jcache.has(pkt)) return jcache.get(pkt);
+  const path = longestPath(scn, pkt);
+  const hops = path.length - 1;
+  const stopAt = pkt.lost ? (pkt.lostAt ?? 0.55) * hops : hops; // in segments
+  const full = Math.floor(stopAt);
+  const holds = path.slice(1, -1).map((n) => holdMs(holdText(scn, pkt, n)));
+  const travel = stopAt * SEG_MS + holds.slice(0, Math.min(full, hops - 1)).reduce((a, b) => a + b, 0);
+  const j = { path, hops, stopAt, holds, total: travel + ARRIVE_MS, travel };
+  jcache.set(pkt, j);
+  return j;
 }
 
 // Where is the packet at time t (lesson ms)? Returns segment fraction + phase

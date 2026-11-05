@@ -261,6 +261,11 @@ table.pk td.info { white-space: normal; min-width: 240px; }
 .tag { background: var(--kc); color: #0b1222; font-weight: 700; padding: 2px 7px; border-radius: 4px; font-size: .78rem; }
 .callout-msg { display: block; margin: 6px 0 2px; color: var(--ink); }
 .callout-meta { display: block; font-size: .8rem; color: var(--blue); }
+.journey-note { margin: 4px 0 12px; }
+.journey-note .h-mini { margin-top: 8px; }
+.hop-list { margin: 0; padding-left: 22px; font-size: .9rem; color: var(--ink-2); }
+.hop-list li { margin-bottom: 6px; line-height: 1.45; }
+.hop-list b { color: var(--ink); }
 .deep { margin: 6px 0 12px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--surface-2); }
 .deep summary { cursor: pointer; padding: 9px 12px; font-weight: 700; color: var(--blue); list-style: none; }
 .deep summary::-webkit-details-marker { display: none; }

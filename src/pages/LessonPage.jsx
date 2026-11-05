@@ -6,7 +6,7 @@ import { useStore, store } from '../lib/progress.js';
 import { href, session } from '../lib/router.js';
 import NetworkView from '../components/NetworkView.jsx';
 import SequenceView from '../components/SequenceView.jsx';
-import StackView from '../components/StackView.jsx';
+import StackView, { STACK_TOTAL } from '../components/StackView.jsx';
 import Inspector from '../components/Inspector.jsx';
 import StudyView from '../components/StudyView.jsx';
 import LabView from '../labs/index.jsx';
@@ -73,12 +73,28 @@ export default function LessonPage({ L }) {
   const back = () => { setPlaying(false); setFrozen(false); setPanelMode('auto'); setCursor((c) => Math.max(-1, c - 1)); };
   const restart = () => { setPlaying(false); setFrozen(false); setCursor(-1); setPanelMode('auto'); };
   const jumpStep = (i) => { setPlaying(false); setFrozen(false); setPanelMode('auto'); setCursor(timeline.findIndex((e) => e.step === i && !e.pkt)); };
-  const pause = () => { setPlaying(false); setFrozen(true); };
+  // Is a packet animation still running? (accounts for pauses and speed)
+  const animLen = !latest ? 0 : view === 'stack' ? STACK_TOTAL : view === 'sequence' ? journey(L, latest).travel : journey(L, latest).total + 900;
+  const [animDone, setAnimDone] = useState(true);
+  const animWaited = useRef(0);
+  useEffect(() => { animWaited.current = 0; setAnimDone(!latest); }, [animKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!latest || frozen || animDone) return;
+    const t0 = performance.now();
+    const id = setTimeout(() => setAnimDone(true), Math.max(0, animLen - animWaited.current) / speed);
+    return () => { clearTimeout(id); animWaited.current += (performance.now() - t0) * speed; };
+  }, [animKey, frozen, speed, animLen, latest, animDone]);
+  const moving = playing || (!animDone && !frozen);
+
+  // Pause stops whatever is moving: the packet animation and/or autoplay. Resume continues both.
+  const resumeAutoplay = useRef(false);
+  const pause = () => { resumeAutoplay.current = playing; setPlaying(false); setFrozen(true); };
+  const resume = () => { setFrozen(false); if (resumeAutoplay.current) setPlaying(true); };
   const play = () => {
     if (finished) { setCursor(-1); setPanelMode('auto'); }
     setFrozen(false); setPlaying(true);
   };
-  const togglePlay = () => (playing ? pause() : play());
+  const togglePlay = () => (frozen ? resume() : moving ? pause() : play());
   const togglePlayRef = useRef(togglePlay); togglePlayRef.current = togglePlay;
   const nextRef = useRef(next); nextRef.current = () => { if (!finished) next(); };
   const backRef = useRef(back); backRef.current = back;
@@ -167,8 +183,8 @@ export default function LessonPage({ L }) {
 
           <div className="controls" role="group" aria-label="Playback">
             <button className="btn" onClick={back} disabled={cursor < 0}>Back</button>
-            <button className="btn primary play" onClick={togglePlay} aria-pressed={playing}>
-              {playing ? 'Pause' : frozen ? 'Resume' : finished ? 'Play again' : cursor < 0 ? 'Play lesson' : 'Play'}
+            <button className="btn primary play" onClick={togglePlay} aria-pressed={moving}>
+              {frozen ? 'Resume' : moving ? 'Pause' : finished ? 'Play again' : cursor < 0 ? 'Play lesson' : 'Play'}
             </button>
             <button className="btn next" onClick={next} disabled={finished}>
               {cursor < 0 ? 'Start' : entry && !entry.pkt && L.steps[entry.step].packets.length ? 'Send packet' : 'Next'}

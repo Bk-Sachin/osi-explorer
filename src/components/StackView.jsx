@@ -10,6 +10,7 @@ const IMPLICIT = {
 const ROW_MS = 1100;
 const WIRE_MS = 1800;
 const TOTAL = ROW_MS * 7 + WIRE_MS + ROW_MS * 7;
+export const STACK_TOTAL = TOTAL;
 
 export default function StackView({ scn, packet, animKey, speed, paused, onInspect }) {
   const ms = useElapsed(animKey, { enabled: !!packet, max: TOTAL + 50, paused, rate: speed });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LAYERS } from '../data/layers.js';
-import { KIND } from '../lib/util.js';
+import { KIND, longestPath, holdText } from '../lib/util.js';
 import { fmtSize } from '../lib/packet.js';
 
 const Facts = ({ rows }) => (
@@ -52,6 +52,25 @@ export function SidePanel({ scn, stepIdx, sent, mode, setMode, onJumpStep, onIns
           <span className="callout-meta">Packet {p.no} of {scn.packets.length}, {p.proto}, {fmtSize(p.frame.size)}{p.lost ? ', lost' : ''}. Open it</span>
         </button>
       ))}
+      {stepPk.length > 0 && (() => {
+        const p = stepPk[stepPk.length - 1];
+        const path = longestPath(scn, p);
+        return (
+          <div className="journey-note">
+            <h3 className="h-mini">How packet {p.no} travels</h3>
+            <ol className="hop-list">
+              {path.map((n, i) => (
+                <li key={n + i}>
+                  <b>{scn.nodes[n].label}</b>
+                  {i === 0 && <span> sends it.</span>}
+                  {i > 0 && i < path.length - 1 && <span>: {holdText(scn, p, n).replace(/^[^:]+:\s*/, '')}</span>}
+                  {i === path.length - 1 && <span>{p.lost ? ' never receives it: it was lost on the way.' : ' receives it.'}</span>}
+                </li>
+              ))}
+            </ol>
+          </div>
+        );
+      })()}
       {step.deep && (
         <details className="deep" key={`${scn.id}-${stepIdx}`}>
           <summary>Go deeper</summary>
