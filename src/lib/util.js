@@ -64,6 +64,73 @@ export function useProgress(key, duration, enabled = true) {
 
 export const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
+// Elapsed milliseconds since key changed (stops counting after maxMs)
+export function useElapsed(key, enabled, maxMs) {
+  const [ms, setMs] = useState(enabled ? 0 : maxMs);
+  const raf = useRef();
+  useEffect(() => {
+    if (!enabled) { setMs(maxMs); return; }
+    setMs(0);
+    const start = performance.now();
+    const tick = (now) => {
+      const v = Math.min(maxMs, now - start);
+      setMs(v);
+      if (v < maxMs) raf.current = requestAnimationFrame(tick);
+    };
+    raf.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf.current);
+  }, [key, enabled, maxMs]);
+  return ms;
+}
+
+/* ---------------- packet journey timing (at 1× speed) ---------------- */
+export const SEG_MS = 2000;   // travel time per link
+export const HOLD_MS = 1500;  // processing pause at an intermediate device
+export const ARRIVE_MS = 900; // arrival pulse
+
+export function longestPath(scn, pkt) {
+  return [].concat(pkt.to).map((t) => route(scn, pkt.from, t)).sort((a, b) => b.length - a.length)[0];
+}
+
+// Journey plan in "lesson ms" (divide by speed for real time)
+export function journey(scn, pkt) {
+  const path = longestPath(scn, pkt);
+  const hops = path.length - 1;
+  const stopAt = pkt.lost ? (pkt.lostAt ?? 0.55) * hops : hops; // in segments
+  const full = Math.floor(stopAt);
+  const travel = stopAt * SEG_MS + Math.min(full, hops - 1) * HOLD_MS;
+  return { path, hops, stopAt, total: travel + ARRIVE_MS, travel };
+}
+
+// Where is the packet at time t (lesson ms)? Returns segment fraction + phase
+export function journeyState(j, t) {
+  let rem = t;
+  for (let i = 0; i < j.hops; i++) {
+    const segLen = Math.min(1, j.stopAt - i);
+    if (segLen <= 0) break;
+    const segMs = segLen * SEG_MS;
+    if (rem < segMs) return { phase: 'travel', seg: i, k: ease(rem / segMs) * segLen };
+    rem -= segMs;
+    if (segLen < 1) return { phase: 'lost', seg: i, k: segLen, after: rem };
+    if (i < j.hops - 1) {
+      if (rem < HOLD_MS) return { phase: 'hold', seg: i, k: 1, node: j.path[i + 1], holdK: rem / HOLD_MS };
+      rem -= HOLD_MS;
+    }
+  }
+  return { phase: 'arrived', seg: j.hops - 1, k: 1, after: rem };
+}
+
+export const HOLD_TEXT = {
+  router: 'Router: reads the destination IP, looks up its routing table, lowers TTL by 1 and writes a fresh Ethernet header for the next link.',
+  switch: 'Switch: reads the destination MAC, looks it up in its MAC table and forwards the frame out of the matching port only.',
+  cloud: 'The internet: a chain of ISP routers forwards the packet hop by hop toward the destination network.',
+  ap: 'Access point: converts between an 802.11 radio frame and a wired Ethernet frame.',
+  hub: 'Hub: has no table at all. It simply repeats the electrical signal out of every other port.',
+  dns: 'Forwarding…', server: 'Forwarding…', laptop: 'Forwarding…', phone: 'Forwarding…',
+};
+
+export const wordsMs = (text = '') => Math.min(16000, Math.max(6000, text.split(/\s+/).length * 230));
+
 export function loadJSON(key, fallback) {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
 }

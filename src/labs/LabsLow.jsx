@@ -117,7 +117,7 @@ export function SwitchLab() {
   const [table, setTable] = useState({});
   const [log, setLog] = useState([]);
   const [shot, setShot] = useState(null); // {src, outs:[ids], n}
-  const p = useProgress(shot?.n ?? 0, 1100, !!shot);
+  const p = useProgress(shot?.n ?? 0, 2600, !!shot);
 
   const send = () => {
     const s = HOSTS.find((h) => h.id === src);

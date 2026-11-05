@@ -31,6 +31,12 @@ export function SidePanel({ scn, stepIdx, sent, mode, setMode, onJumpStep, onIns
             <p>{L.job}</p>
             <p>Think of it as: {L.analogy}</p>
           </div>
+          {scn.keyIdeas && (
+            <div className="panel-box" style={{ marginTop: 0, marginBottom: 12 }}>
+              <h5>Key ideas you'll learn</h5>
+              <ul className="ideas">{scn.keyIdeas.map((k, i) => <li key={i}>{k}</li>)}</ul>
+            </div>
+          )}
           <Facts rows={scn.facts} />
           <div className="kicker">Steps</div>
           <ul className="steps-list">
@@ -62,6 +68,12 @@ export function SidePanel({ scn, stepIdx, sent, mode, setMode, onJumpStep, onIns
         <h2>{step.title}</h2>
         <p className="lead">{step.sub}</p>
         <p className="text">{step.text}</p>
+        {step.deep && (
+          <details className="deep" key={`${scn.id}-${stepIdx}`}>
+            <summary>Deep dive</summary>
+            <div>{[].concat(step.deep).map((d, i) => <p key={i}>{d}</p>)}</div>
+          </details>
+        )}
         {stepPk.map((p) => (
           <button key={p.no} className="callout" style={{ '--kc': KIND[p.kind] }} onClick={() => onInspect(p.no)}>
             <div className="top"><span className="tag">{p.label}</span>{scn.nodes[p.from].label} → {[].concat(p.to).map((t) => scn.nodes[t].label).join(', ')}</div>

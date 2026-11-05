@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SCENARIOS, byId, byLayer } from './data/scenarios/index.js';
 import { LAYERS } from './data/layers.js';
-import { KIND, loadJSON, saveJSON } from './lib/util.js';
+import { KIND, loadJSON, saveJSON, journey, wordsMs } from './lib/util.js';
+import StudyView from './components/StudyView.jsx';
 import NetworkView from './components/NetworkView.jsx';
 import SequenceView from './components/SequenceView.jsx';
 import StackView from './components/StackView.jsx';
@@ -9,8 +10,8 @@ import Inspector from './components/Inspector.jsx';
 import { SidePanel, PacketTable, Drawer } from './components/Panels.jsx';
 import LabView from './labs/index.jsx';
 
-const SPEEDS = [0.5, 1, 2];
-const VIEWS = [['network', '◈ Network'], ['sequence', '⇅ Sequence'], ['stack', '☰ Encapsulation'], ['lab', '⚗ Lab']];
+const SPEEDS = [0.5, 0.75, 1, 1.5, 2];
+const VIEWS = [['network', '◈ Network'], ['sequence', '⇅ Sequence'], ['stack', '☰ Encapsulation'], ['lab', '⚗ Lab'], ['study', '📖 Study']];
 
 function buildTimeline(scn) {
   const t = [];
@@ -36,6 +37,8 @@ export default function App() {
   const [drawer, setDrawer] = useState(false);
   const [theme, setTheme] = useState(() => loadJSON('osi.theme', 'dark'));
   const [progress, setProgress] = useState(() => loadJSON('osi.progress', { done: {}, quiz: {} }));
+  const [replay, setReplay] = useState(0);
+  const [studyLayer, setStudyLayer] = useState(scn.layer);
 
   useEffect(() => { document.documentElement.dataset.theme = theme; saveJSON('osi.theme', theme); }, [theme]);
   useEffect(() => { saveJSON('osi.sid', sid); }, [sid]);
@@ -45,7 +48,7 @@ export default function App() {
   const stepIdx = entry ? entry.step : -1;
   const sent = scn.packets.slice(0, entry ? entry.sent : 0);
   const latest = entry?.pkt || null;
-  const animKey = `${sid}-${cursor}`;
+  const animKey = `${sid}-${cursor}-${replay}`;
   const finished = cursor === timeline.length - 1;
   const lastSent = sent[sent.length - 1] || null;
 
@@ -70,14 +73,17 @@ export default function App() {
 
   useEffect(() => {
     if (!playing) return;
-    const delay = (entry?.pkt ? 1700 : 2400) / speed;
-    const id = setTimeout(advance, cursor < 0 ? 200 : delay);
+    // wait for the packet's whole journey plus reading time, or long enough to read a new step
+    const delay = entry?.pkt
+      ? (journey(scn, entry.pkt).total + 3500) / speed
+      : wordsMs(entry ? scn.steps[entry.step].text : '') / speed;
+    const id = setTimeout(advance, cursor < 0 ? 300 : delay);
     return () => clearTimeout(id);
-  }, [playing, cursor, speed, advance, entry]);
+  }, [playing, cursor, speed, advance, entry, scn, replay]);
 
   const pick = (id) => {
     setSid(id); setCursor(-1); setPlaying(false); setPanelMode('auto'); setDrawer(false); setInsp(null);
-    setLabLayer(byId[id].layer);
+    setLabLayer(byId[id].layer); setStudyLayer(byId[id].layer);
   };
   const jumpStep = (i) => {
     setPlaying(false); setPanelMode('auto'); setDrawer(false);
@@ -145,18 +151,22 @@ export default function App() {
         </div>
       </section>
 
-      <main className={`main ${view === 'lab' ? 'lab-mode' : ''}`}>
+      <main className={`main ${view === 'lab' || view === 'study' ? 'lab-mode' : ''}`}>
         <div className="card stage">
           <div className="tabs" role="tablist">
             {VIEWS.map(([k, label]) => <button key={k} role="tab" aria-selected={view === k} className={view === k ? 'on' : ''} onClick={() => setView(k)}>{label}</button>)}
           </div>
           <div className="stage-body">
             {view === 'network' && <NetworkView scn={scn} visible={visible} latest={latest} animKey={animKey} speed={speed} onInspect={setInsp} />}
-            {view === 'sequence' && <SequenceView scn={scn} stepIdx={stepIdx} sent={sent} animKey={animKey} speed={speed} onInspect={setInsp} />}
-            {view === 'stack' && <StackView scn={scn} packet={lastSent} animKey={`${sid}-${lastSent?.no}`} speed={speed} onInspect={setInsp} />}
+            {view === 'sequence' && <SequenceView scn={scn} stepIdx={stepIdx} sent={sent} animKey={animKey} speed={speed} onInspect={setInsp} freshPacket={!!latest} />}
+            {view === 'stack' && <StackView scn={scn} packet={lastSent} animKey={`${sid}-${lastSent?.no}-${replay}`} speed={speed} onInspect={setInsp} />}
             {view === 'lab' && <LabView layer={labLayer} setLayer={setLabLayer} />}
+            {view === 'study' && <StudyView layer={studyLayer} setLayer={setStudyLayer} onPick={pick} />}
           </div>
-          {view === 'network' && <div className="stage-hint">Click a moving packet to inspect it · Space = play · → = step</div>}
+          {(view === 'network' || view === 'stack' || view === 'sequence') && lastSent && (
+            <button className="btn sm replay" onClick={() => setReplay((r) => r + 1)} title="Replay the last packet's animation">↻ Replay packet</button>
+          )}
+          {view === 'network' && !latest && <div className="stage-hint">Click a moving packet to inspect it · Space = play · → = step</div>}
         </div>
 
         <aside className="card side">

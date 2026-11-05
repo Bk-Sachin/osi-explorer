@@ -65,16 +65,22 @@ export function physical() {
   };
 }
 
-export function ethernet({ dst, src, type = 0x0800, dstNote, srcNote, fcs = false, pad = true }) {
+export function ethernet({ dst, src, type = 0x0800, dstNote, srcNote, fcs = false, pad = true, vlan }) {
   const typeName = { 0x0800: 'IPv4', 0x0806: 'ARP', 0x86dd: 'IPv6' }[type] || 'unknown';
   return {
     build: (inner) => {
-      const header = [...macB(dst), ...macB(src), ...u16(type)];
+      const tci = vlan ? ((vlan.pcp || 0) << 13) | (vlan.id & 0xfff) : 0;
+      const tag = vlan ? [0x81, 0x00, ...u16(tci)] : [];
+      const header = [...macB(dst), ...macB(src), ...tag, ...u16(type)];
       const fields = [
         field('Destination', macB(dst), dst, dstNote || 'MAC address of the next device on this link.'),
         field('Source', macB(src), src, srcNote || 'MAC address of the sender\'s network card.'),
-        field('Type', u16(type), `0x${hex(type, 4)} (${typeName})`, 'Tells the receiver which protocol is inside the frame.'),
       ];
+      if (vlan) {
+        fields.push(field('802.1Q TPID', [0x81, 0x00], '0x8100 (VLAN tag)', 'Tag Protocol ID: "a VLAN tag follows" (sits where the Type field normally is).'));
+        fields.push(field('802.1Q TCI', u16(tci), `PCP ${vlan.pcp || 0}, DEI 0, VLAN ${vlan.id}`, 'Priority (3 bits, for QoS), drop-eligible (1 bit) and the 12-bit VLAN ID (1–4094).'));
+      }
+      fields.push(field('Type', u16(type), `0x${hex(type, 4)} (${typeName})`, 'Tells the receiver which protocol is inside the frame.'));
       const padLen = pad ? Math.max(0, 60 - (14 + inner.length)) : 0;
       const trailer = [];
       if (padLen) trailer.push(field('Padding', Array(padLen).fill(0), `${padLen} bytes`, 'Ethernet frames must be at least 64 bytes (incl. FCS), so short ones are padded with zeros.'));
@@ -90,7 +96,7 @@ export function ethernet({ dst, src, type = 0x0800, dstNote, srcNote, fcs = fals
   };
 }
 
-export function wifi({ addr1, addr2, addr3, toDS = true }) {
+export function wifi({ addr1, addr2, addr3, toDS = true, etype }) {
   return {
     build: () => ({
       name: '802.11 (Wi-Fi)',
@@ -103,7 +109,9 @@ export function wifi({ addr1, addr2, addr3, toDS = true }) {
         field('Address 2 (transmitter)', macB(addr2), addr2, 'The radio that sent it.'),
         field('Address 3', macB(addr3), addr3, 'Final destination beyond the access point (e.g. the router).'),
         field('Sequence control', u16(0x1a20), '0x1a20', 'Lets the receiver discard duplicate retransmissions.', { eg: true }),
-        field('LLC/SNAP', [0xaa, 0xaa, 0x03, 0, 0, 0, 0x08, 0x00], 'IPv4', 'Says an IPv4 packet follows, like Ethernet\'s Type field.'),
+        etype === 0x888e
+          ? field('LLC/SNAP', [0xaa, 0xaa, 0x03, 0, 0, 0, 0x88, 0x8e], '802.1X (EAPOL)', 'Says an EAPOL authentication message follows.')
+          : field('LLC/SNAP', [0xaa, 0xaa, 0x03, 0, 0, 0, 0x08, 0x00], 'IPv4', 'Says an IPv4 packet follows, like Ethernet\'s Type field.'),
       ],
     }),
   };
@@ -131,12 +139,13 @@ export function arp({ op, sha, spa, tha, tpa }) {
 }
 
 const PROTO = { 1: 'ICMP', 6: 'TCP', 17: 'UDP' };
-export function ipv4({ src, dst, proto = 6, ttl = 64, id = 0x1c46, df = true, ttlNote }) {
+export function ipv4({ src, dst, proto = 6, ttl = 64, id = 0x1c46, df = true, ttlNote, mf = false, fragOffset = 0, srcNote, dstNote }) {
   return {
     ip: { src, dst, proto },
     build: (inner) => {
       const total = 20 + inner.length;
-      const flags = df ? 0x4000 : 0;
+      const flags = (df ? 0x4000 : 0) | (mf ? 0x2000 : 0) | ((fragOffset / 8) & 0x1fff);
+      const fragged = mf || fragOffset;
       const hdr = [0x45, 0x00, ...u16(total), ...u16(id), ...u16(flags), ttl, proto, 0, 0, ...ipB(src), ...ipB(dst)];
       const ck = inetChecksum(hdr);
       return {
@@ -148,12 +157,14 @@ export function ipv4({ src, dst, proto = 6, ttl = 64, id = 0x1c46, df = true, tt
           field('DSCP, ECN', [0x00], '0, 0', 'Priority and congestion marks; 0 means ordinary traffic.'),
           field('Total length', u16(total), `${total} bytes`, 'This header plus everything inside it.'),
           field('Identification', u16(id), `0x${hex(id, 4)}`, 'Lets the receiver reassemble fragments of the same packet.', { eg: true }),
-          field('Flags', u16(flags), df ? "Don't fragment" : 'none', df ? 'Routers must not split this packet; they report an error instead.' : 'Routers may split it if a link is too small.'),
+          fragged
+            ? field('Flags, fragment offset', u16(flags), `${mf ? 'More fragments' : 'Last fragment'}, offset ${fragOffset}`, `${mf ? 'MF=1: more pieces follow.' : 'MF=0: this is the final piece.'} Offset ${fragOffset} (stored as ${fragOffset / 8} × 8 bytes) says where this piece belongs in the original payload.`)
+            : field('Flags', u16(flags), df ? "Don't fragment" : 'none', df ? 'Routers must not split this packet; they report an error instead.' : 'Routers may split it if a link is too small.'),
           field('Time to live', [ttl], `${ttl}`, ttlNote || 'Each router subtracts 1. At 0 the packet is dropped, so loops cannot last forever.'),
           field('Protocol', [proto], `${proto} (${PROTO[proto] || '?'})`, 'Which transport protocol is inside.'),
           field('Header checksum', u16(ck), `0x${hex(ck, 4)}`, 'Covers this header only; every router recomputes it after lowering the TTL.'),
-          field('Source', ipB(src), src, 'The original sender. Unlike MACs, this stays the same end to end (unless NAT rewrites it).'),
-          field('Destination', ipB(dst), dst, 'The final destination, across any number of networks.'),
+          field('Source', ipB(src), src, srcNote || 'The original sender. Unlike MACs, this stays the same end to end (unless NAT rewrites it).'),
+          field('Destination', ipB(dst), dst, dstNote || 'The final destination, across any number of networks.'),
         ],
       };
     },
@@ -213,15 +224,15 @@ export function udp({ sport, dport }) {
 }
 
 const ICMP_TYPES = { 0: 'Echo reply', 8: 'Echo request', 11: 'Time exceeded', 3: 'Destination unreachable' };
-export function icmp({ type, code = 0, id = 1, seq = 1, data = 32, embedded }) {
+export function icmp({ type, code = 0, id = 1, seq = 1, data = 32, embedded, mtu }) {
   return {
     build: () => {
-      const rest = type === 0 || type === 8 ? [...u16(id), ...u16(seq)] : [0, 0, 0, 0];
+      const rest = type === 0 || type === 8 ? [...u16(id), ...u16(seq)] : mtu ? [0, 0, ...u16(mtu)] : [0, 0, 0, 0];
       const body = embedded || asciiB('abcdefghijklmnopqrstuvwabcdefghi'.slice(0, data));
       const ck = inetChecksum([type, code, 0, 0, ...rest, ...body]);
       const fields = [
-        field('Type', [type], `${type} (${ICMP_TYPES[type]})`, type === 11 ? 'A router dropped the packet because its TTL reached 0.' : type === 8 ? 'Are you there?' : 'Yes, I am here.'),
-        field('Code', [code], `${code}`, 'Refines the type; 0 here.'),
+        field('Type', [type], `${type} (${ICMP_TYPES[type]})`, type === 11 ? 'A router dropped the packet because its TTL reached 0.' : type === 8 ? 'Are you there?' : type === 3 ? 'A router or host could not deliver the packet.' : 'Yes, I am here.'),
+        field('Code', [code], type === 3 && code === 4 ? '4 (Fragmentation needed, DF set)' : type === 3 && code === 3 ? '3 (Port unreachable)' : `${code}`, type === 3 ? 'Why it could not be delivered.' : 'Refines the type; 0 here.'),
         field('Checksum', u16(ck), `0x${hex(ck, 4)}`, 'Covers the whole ICMP message.'),
       ];
       if (type === 0 || type === 8) {
@@ -229,7 +240,8 @@ export function icmp({ type, code = 0, id = 1, seq = 1, data = 32, embedded }) {
         fields.push(field('Sequence', u16(seq), `${seq}`, 'Counts each ping so lost ones can be spotted.'));
         fields.push(field('Data', body, `${body.length} bytes`, 'Filler bytes the target simply echoes back.'));
       } else {
-        fields.push(field('Unused', [0, 0, 0, 0], '0', 'Reserved.'));
+        if (mtu) fields.push(field('Unused, next-hop MTU', rest, `MTU ${mtu}`, 'Path MTU discovery: "the next link only carries packets up to this size, resend smaller".'));
+        else fields.push(field('Unused', [0, 0, 0, 0], '0', 'Reserved.'));
         fields.push(field('Original datagram', body, `${body.length} bytes`, 'The start of the packet that died, so the sender knows which one it was.', { opaque: !embedded }));
       }
       return { name: 'ICMP', osi: 3, summary: ICMP_TYPES[type], fields };
@@ -268,6 +280,36 @@ export function dns({ id = 0x3b2a, qname, response = false, answer, ttl = 3600, 
     },
   };
 }
+
+const DHCP_TYPES = { 1: 'DISCOVER', 2: 'OFFER', 3: 'REQUEST', 5: 'ACK', 6: 'NAK', 7: 'RELEASE' };
+// DHCP (BOOTP format). options: [code, valueBytes, label, desc]
+export function dhcp({ msgType, xid = 0x3903f326, chaddr, yiaddr = '0.0.0.0', siaddr = '0.0.0.0', ciaddr = '0.0.0.0', broadcast = true, options = [] }) {
+  return {
+    build: () => {
+      const op = [1, 3, 7].includes(msgType) ? 1 : 2;
+      const opt = (code, bytes) => [code, bytes.length, ...bytes];
+      const fields = [
+        field('Op', [op], op === 1 ? '1 (BOOTREQUEST)' : '2 (BOOTREPLY)', 'Client → server messages are requests; server → client are replies.'),
+        field('Hardware type, length', [1, 6], 'Ethernet, 6 bytes', 'The client identifies itself by a 6-byte MAC.'),
+        field('Hops', [0], '0', 'Incremented by DHCP relay agents that forward the message between subnets.'),
+        field('Transaction ID', u32(xid), `0x${hex(xid, 8)}`, 'Random number chosen by the client; every message in this exchange reuses it.', { eg: true }),
+        field('Seconds, flags', [0, 0, ...u16(broadcast ? 0x8000 : 0)], broadcast ? 'Broadcast flag set' : 'Unicast OK', 'Broadcast flag: "I have no IP yet, broadcast your reply".'),
+        field('Client IP (ciaddr)', ipB(ciaddr), ciaddr, 'Filled only when the client already has an address (renewal).'),
+        field('Your IP (yiaddr)', ipB(yiaddr), yiaddr, op === 2 ? 'The address the server is offering/assigning to this client.' : 'Empty in requests.'),
+        field('Server IP (siaddr)', ipB(siaddr), siaddr, 'Next server for network boot (often 0).'),
+        field('Relay IP (giaddr)', [0, 0, 0, 0], '0.0.0.0', 'Set by a relay agent so the server knows which subnet the client is on.'),
+        field('Client MAC (chaddr)', [...macB(chaddr), ...Array(10).fill(0)], chaddr, 'The client\'s hardware address, padded to 16 bytes.'),
+        field('Server name + boot file', Array(192).fill(0), '(unused, 192 bytes)', 'Legacy BOOTP fields for diskless booting; normally empty.'),
+        field('Magic cookie', [0x63, 0x82, 0x53, 0x63], '99.130.83.99', 'Marks the start of DHCP options (distinguishes DHCP from plain BOOTP).'),
+        field('Option 53: message type', opt(53, [msgType]), DHCP_TYPES[msgType], 'Which of the four DORA messages this is.'),
+        ...options.map(([code, bytes, label, desc]) => field(`Option ${code}: ${label.split(':')[0]}`, opt(code, bytes), label.split(':').slice(1).join(':').trim() || label, desc)),
+        field('End', [255], '255', 'End of options.'),
+      ];
+      return { name: 'DHCP', osi: 7, summary: `DHCP ${DHCP_TYPES[msgType]}`, fields };
+    },
+  };
+}
+export const ipBytes = ipB;
 
 // Plain-text protocol (HTTP, SMTP...). lines: [text, desc, fieldName?]
 export function textProto({ name, osi = 7, summary, lines, body, bodyDesc, opaqueBody }) {

@@ -56,7 +56,7 @@ export function TransportLab() {
   const tickRef = useRef(tick); tickRef.current = tick;
   useEffect(() => {
     if (!auto || done) { if (done) setAuto(false); return; }
-    const id = setInterval(() => tickRef.current(), 650);
+    const id = setInterval(() => tickRef.current(), 1400);
     return () => clearInterval(id);
   }, [auto, done]);
 
