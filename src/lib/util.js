@@ -43,63 +43,79 @@ export function pointAt(pts, t) {
   return pts[pts.length - 1];
 }
 
-// Animation progress 0→1, restarting when key changes
-export function useProgress(key, duration, enabled = true) {
-  const [p, setP] = useState(enabled ? 0 : 1);
-  const raf = useRef();
-  useEffect(() => {
-    if (!enabled) { setP(1); return; }
-    setP(0);
-    const start = performance.now();
-    const tick = (now) => {
-      const v = Math.min(1, (now - start) / duration);
-      setP(v);
-      if (v < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
-  }, [key, duration, enabled]);
-  return p;
-}
-
 export const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
-// Elapsed milliseconds since key changed (stops counting after maxMs)
-export function useElapsed(key, enabled, maxMs) {
-  const [ms, setMs] = useState(enabled ? 0 : maxMs);
-  const raf = useRef();
+// Animation clock in "lesson ms". It restarts when `key` changes, freezes while `paused`,
+// runs `rate`× faster (playback speed) and stops counting at `max`.
+// Changing speed or pausing never restarts the animation.
+export function useElapsed(key, { enabled = true, max, paused = false, rate = 1 }) {
+  const [ms, setMs] = useState(enabled ? 0 : max);
+  const acc = useRef(0);
+  const rateRef = useRef(rate);
+  rateRef.current = rate;
+  useEffect(() => { acc.current = enabled ? 0 : max; setMs(acc.current); }, [key, enabled, max]);
   useEffect(() => {
-    if (!enabled) { setMs(maxMs); return; }
-    setMs(0);
-    const start = performance.now();
+    if (!enabled || paused || acc.current >= max) return;
+    let last = performance.now();
+    let raf;
     const tick = (now) => {
-      const v = Math.min(maxMs, now - start);
-      setMs(v);
-      if (v < maxMs) raf.current = requestAnimationFrame(tick);
+      acc.current = Math.min(max, acc.current + (now - last) * rateRef.current);
+      last = now;
+      setMs(acc.current);
+      if (acc.current < max) raf = requestAnimationFrame(tick);
     };
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
-  }, [key, enabled, maxMs]);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [key, enabled, max, paused]);
   return ms;
 }
 
+// 0→1 progress over `duration` real ms (pausable)
+export function useProgress(key, duration, enabled = true, paused = false) {
+  return useElapsed(key, { enabled, max: duration, paused }) / duration;
+}
+
 /* ---------------- packet journey timing (at 1× speed) ---------------- */
-export const SEG_MS = 2000;   // travel time per link
-export const HOLD_MS = 1500;  // processing pause at an intermediate device
-export const ARRIVE_MS = 900; // arrival pulse
+export const SEG_MS = 2200;   // travel time per link
+export const ARRIVE_MS = 1200; // arrival pulse
+// a pause at a device lasts long enough to read its caption (~4 words a second)
+export const holdMs = (text = '') => Math.min(8000, Math.max(2800, text.split(/\s+/).length * 250));
 
 export function longestPath(scn, pkt) {
   return [].concat(pkt.to).map((t) => route(scn, pkt.from, t)).sort((a, b) => b.length - a.length)[0];
 }
 
 // Journey plan in "lesson ms" (divide by speed for real time)
+// The caption shown while a packet waits at an intermediate device
+export function holdText(scn, pkt, node) {
+  return pkt.hold?.[node] || HOLD_TEXT[scn.nodes[node]?.type] || 'Forwarding…';
+}
+
+// A device's explanation gets full reading time the first time it appears in a lesson,
+// and a short pause after that (it's the same text you've already read).
+export const REPEAT_HOLD_MS = 2200;
+const jcache = new WeakMap();
+function buildJourneys(scn) {
+  const seen = new Set();
+  for (const pkt of scn.packets || []) {
+    const path = longestPath(scn, pkt);
+    const hops = path.length - 1;
+    const stopAt = pkt.lost ? (pkt.lostAt ?? 0.55) * hops : hops; // in segments
+    const full = Math.floor(stopAt);
+    const holds = path.slice(1, -1).map((n, i) => {
+      const text = holdText(scn, pkt, n);
+      if (i >= full) return holdMs(text); // never reached (lost before it)
+      const first = !seen.has(text);
+      seen.add(text);
+      return first ? holdMs(text) : REPEAT_HOLD_MS;
+    });
+    const travel = stopAt * SEG_MS + holds.slice(0, Math.min(full, hops - 1)).reduce((a, b) => a + b, 0);
+    jcache.set(pkt, { path, hops, stopAt, holds, total: travel + ARRIVE_MS, travel });
+  }
+}
 export function journey(scn, pkt) {
-  const path = longestPath(scn, pkt);
-  const hops = path.length - 1;
-  const stopAt = pkt.lost ? (pkt.lostAt ?? 0.55) * hops : hops; // in segments
-  const full = Math.floor(stopAt);
-  const travel = stopAt * SEG_MS + Math.min(full, hops - 1) * HOLD_MS;
-  return { path, hops, stopAt, total: travel + ARRIVE_MS, travel };
+  if (!jcache.has(pkt)) buildJourneys(scn);
+  return jcache.get(pkt);
 }
 
 // Where is the packet at time t (lesson ms)? Returns segment fraction + phase
@@ -113,8 +129,9 @@ export function journeyState(j, t) {
     rem -= segMs;
     if (segLen < 1) return { phase: 'lost', seg: i, k: segLen, after: rem };
     if (i < j.hops - 1) {
-      if (rem < HOLD_MS) return { phase: 'hold', seg: i, k: 1, node: j.path[i + 1], holdK: rem / HOLD_MS };
-      rem -= HOLD_MS;
+      const h = j.holds[i];
+      if (rem < h) return { phase: 'hold', seg: i, k: 1, node: j.path[i + 1], holdK: rem / h, after: rem, left: h - rem };
+      rem -= h;
     }
   }
   return { phase: 'arrived', seg: j.hops - 1, k: 1, after: rem };

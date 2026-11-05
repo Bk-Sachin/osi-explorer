@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { KIND, useProgress, journey } from '../lib/util.js';
+import { KIND, useElapsed, journey } from '../lib/util.js';
 
-export default function SequenceView({ scn, stepIdx, sent, animKey, speed, onInspect, freshPacket }) {
+export default function SequenceView({ scn, stepIdx, sent, animKey, speed, paused, onInspect, freshPacket }) {
   const box = useRef();
   const [w, setW] = useState(800);
   useLayoutEffect(() => {
@@ -10,7 +10,8 @@ export default function SequenceView({ scn, stepIdx, sent, animKey, speed, onIns
     return () => ro.disconnect();
   }, []);
   const last = sent[sent.length - 1];
-  const p = useProgress(animKey, last ? journey(scn, last).travel / speed : 1, sent.length > 0 && freshPacket);
+  const travel = last ? journey(scn, last).travel : 1;
+  const p = useElapsed(animKey, { enabled: sent.length > 0 && freshPacket, max: travel, paused, rate: speed }) / travel;
 
   const cols = scn.seq;
   const pad = 150;

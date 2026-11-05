@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SCENARIOS } from '../data/scenarios/index.js';
 import { LAYERS } from '../data/layers.js';
 import { KIND, journey, wordsMs } from '../lib/util.js';
@@ -39,6 +39,7 @@ export default function LessonPage({ L }) {
   const [insp, setInsp] = useState(null);
   const [replay, setReplay] = useState(0);
   const [aux, setAux] = useState(L.layer); // layer shown in Lab / Study tabs
+  const [frozen, setFrozen] = useState(false); // Pause freezes the animation itself
   const setSpeed = (v) => { setSpeedRaw(v); session.set('speed', v); };
   const setView = (v) => { setViewRaw(v); session.set('view', v); };
 
@@ -67,28 +68,45 @@ export default function LessonPage({ L }) {
     setPanelMode((m) => (m === 'quiz' ? m : 'auto'));
     setCursor((c) => Math.min(c + 1, timeline.length - 1));
   }, [timeline.length]);
-  const back = () => { setPlaying(false); setPanelMode('auto'); setCursor((c) => Math.max(-1, c - 1)); };
-  const restart = () => { setPlaying(false); setCursor(-1); setPanelMode('auto'); };
-  const jumpStep = (i) => { setPlaying(false); setPanelMode('auto'); setCursor(timeline.findIndex((e) => e.step === i && !e.pkt)); };
+  // Any manual move un-freezes the animation; only Pause freezes it.
+  const next = () => { setPlaying(false); setFrozen(false); advance(); };
+  const back = () => { setPlaying(false); setFrozen(false); setPanelMode('auto'); setCursor((c) => Math.max(-1, c - 1)); };
+  const restart = () => { setPlaying(false); setFrozen(false); setCursor(-1); setPanelMode('auto'); };
+  const jumpStep = (i) => { setPlaying(false); setFrozen(false); setPanelMode('auto'); setCursor(timeline.findIndex((e) => e.step === i && !e.pkt)); };
+  const pause = () => { setPlaying(false); setFrozen(true); };
+  const play = () => {
+    if (finished) { setCursor(-1); setPanelMode('auto'); }
+    setFrozen(false); setPlaying(true);
+  };
+  const togglePlay = () => (playing ? pause() : play());
+  const togglePlayRef = useRef(togglePlay); togglePlayRef.current = togglePlay;
+  const nextRef = useRef(next); nextRef.current = () => { if (!finished) next(); };
+  const backRef = useRef(back); backRef.current = back;
 
   useEffect(() => { if (finished) setPlaying(false); }, [finished]);
+
+  // Autoplay: wait for the packet's whole journey (or long enough to read a new step),
+  // remembering how much of that wait has already passed so Pause → Play resumes, not restarts.
+  const waited = useRef(0);
+  useEffect(() => { waited.current = 0; }, [animKey]);
   useEffect(() => {
-    if (!playing) return;
-    const delay = entry?.pkt ? (journey(L, entry.pkt).total + 3500) / speed : wordsMs(entry ? L.steps[entry.step].text : '') / speed;
-    const id = setTimeout(advance, cursor < 0 ? 300 : delay);
-    return () => clearTimeout(id);
-  }, [playing, cursor, speed, advance, entry, L, replay]);
+    if (!playing || frozen) return;
+    const target = cursor < 0 ? 300 : entry?.pkt ? journey(L, entry.pkt).total + 3500 : wordsMs(L.steps[entry.step].text);
+    const t0 = performance.now();
+    const id = setTimeout(advance, Math.max(0, target - waited.current) / speed);
+    return () => { clearTimeout(id); waited.current += (performance.now() - t0) * speed; };
+  }, [playing, frozen, animKey, speed, advance, entry, L, cursor]);
 
   useEffect(() => {
     const onKey = (e) => {
       if (insp != null || e.metaKey || e.ctrlKey || e.altKey || /INPUT|TEXTAREA|SELECT|BUTTON|SUMMARY/.test(e.target.tagName) || e.target.closest?.('[role="tablist"]')) return;
-      if (e.key === ' ') { e.preventDefault(); setPlaying((p) => !p); }
-      if (e.key === 'ArrowRight') advance();
-      if (e.key === 'ArrowLeft') back();
+      if (e.key === ' ') { e.preventDefault(); togglePlayRef.current(); }
+      if (e.key === 'ArrowRight') nextRef.current();
+      if (e.key === 'ArrowLeft') backRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [insp, advance]);
+  }, [insp]);
 
   const firstSub = (id) => (L.nodes[id].sub || '').split('\n')[0].split(' | ')[0] || L.nodes[id].label;
   const srcOf = (p) => p.src ?? firstSub(p.from);
@@ -115,7 +133,7 @@ export default function LessonPage({ L }) {
       <div className="workspace">
         <aside className="rail" aria-label="Steps">
           <ol className="rail-steps">
-            <li><button className={`rail-item ${stepIdx < 0 && panelMode !== 'quiz' ? 'cur' : ''}`} onClick={() => { setPlaying(false); setCursor(-1); setPanelMode('overview'); }}><span className="rail-n">i</span><span>Overview</span></button></li>
+            <li><button className={`rail-item ${stepIdx < 0 && panelMode !== 'quiz' ? 'cur' : ''}`} onClick={() => { setPlaying(false); setFrozen(false); setCursor(-1); setPanelMode('overview'); }}><span className="rail-n">i</span><span>Overview</span></button></li>
             {L.steps.map((st, i) => (
               <li key={i}>
                 <button className={`rail-item ${i === stepIdx && panelMode !== 'quiz' && panelMode !== 'overview' ? 'cur' : ''} ${stepsDone(i) ? 'done' : ''}`} onClick={() => jumpStep(i)} aria-current={i === stepIdx ? 'step' : undefined}>
@@ -136,12 +154,12 @@ export default function LessonPage({ L }) {
               ))}
             </div>
             {(view === 'network' || view === 'stack' || view === 'sequence') && lastSent && (
-              <button className="btn sm replay" onClick={() => setReplay((r) => r + 1)}>Replay packet</button>
+              <button className="btn sm replay" onClick={() => { setFrozen(false); setReplay((r) => r + 1); }}>Replay packet</button>
             )}
             <div className={`stage-body view-${view}`}>
-              {view === 'network' && <NetworkView scn={L} visible={visible} latest={latest} animKey={animKey} speed={speed} onInspect={setInsp} />}
-              {view === 'sequence' && <SequenceView scn={L} stepIdx={stepIdx} sent={sent} animKey={animKey} speed={speed} onInspect={setInsp} freshPacket={!!latest} />}
-              {view === 'stack' && <StackView scn={L} packet={lastSent} animKey={`${L.id}-${lastSent?.no}-${replay}`} speed={speed} onInspect={setInsp} />}
+              {view === 'network' && <NetworkView scn={L} visible={visible} latest={latest} animKey={animKey} speed={speed} paused={frozen} onInspect={setInsp} />}
+              {view === 'sequence' && <SequenceView scn={L} stepIdx={stepIdx} sent={sent} animKey={animKey} speed={speed} paused={frozen} onInspect={setInsp} freshPacket={!!latest} />}
+              {view === 'stack' && <StackView scn={L} packet={lastSent} animKey={`${L.id}-${lastSent?.no}-${replay}`} speed={speed} paused={frozen} onInspect={setInsp} />}
               {view === 'lab' && <LabView layer={aux} setLayer={setAux} />}
               {view === 'study' && <StudyView layer={aux} setLayer={setAux} onPick={(id) => { location.hash = href.lesson(id); }} />}
             </div>
@@ -149,10 +167,10 @@ export default function LessonPage({ L }) {
 
           <div className="controls" role="group" aria-label="Playback">
             <button className="btn" onClick={back} disabled={cursor < 0}>Back</button>
-            <button className="btn primary play" onClick={() => (finished ? (restart(), setPlaying(true)) : setPlaying(!playing))} aria-pressed={playing}>
-              {playing ? 'Pause' : finished ? 'Play again' : cursor < 0 ? 'Play lesson' : 'Play'}
+            <button className="btn primary play" onClick={togglePlay} aria-pressed={playing}>
+              {playing ? 'Pause' : frozen ? 'Resume' : finished ? 'Play again' : cursor < 0 ? 'Play lesson' : 'Play'}
             </button>
-            <button className="btn next" onClick={() => { setPlaying(false); advance(); }} disabled={finished}>
+            <button className="btn next" onClick={next} disabled={finished}>
               {cursor < 0 ? 'Start' : entry && !entry.pkt && L.steps[entry.step].packets.length ? 'Send packet' : 'Next'}
             </button>
             <label className="speed">Speed
@@ -161,7 +179,7 @@ export default function LessonPage({ L }) {
               </select>
             </label>
             <button className="link-btn" onClick={restart}>Restart</button>
-            <span className="kbd-hint muted small">Space plays or pauses. Arrow keys step.</span>
+            <span className="kbd-hint muted small">{frozen ? 'Paused. Read at your own pace, then press Resume.' : 'Space plays or pauses. Arrow keys step.'}</span>
           </div>
 
           <section className="pktlog" aria-label="Packets sent so far">

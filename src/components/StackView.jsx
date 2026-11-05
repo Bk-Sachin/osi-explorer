@@ -11,8 +11,8 @@ const ROW_MS = 1100;
 const WIRE_MS = 1800;
 const TOTAL = ROW_MS * 7 + WIRE_MS + ROW_MS * 7;
 
-export default function StackView({ scn, packet, animKey, speed, onInspect }) {
-  const ms = useElapsed(animKey, !!packet, TOTAL / speed + 50) * speed;
+export default function StackView({ scn, packet, animKey, speed, paused, onInspect }) {
+  const ms = useElapsed(animKey, { enabled: !!packet, max: TOTAL + 50, paused, rate: speed });
   if (!packet) {
     return (
       <div className="stack">

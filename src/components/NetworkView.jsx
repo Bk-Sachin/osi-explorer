@@ -1,13 +1,12 @@
 import { DeviceIcon } from './Icons.jsx';
-import { KIND, route, useElapsed, journey, journeyState, HOLD_TEXT } from '../lib/util.js';
+import { KIND, route, useElapsed, journey, journeyState, holdText } from '../lib/util.js';
 
 const lerp = (a, b, k) => ({ x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k });
 
-export default function NetworkView({ scn, visible, latest, animKey, speed, onInspect }) {
+export default function NetworkView({ scn, visible, latest, animKey, speed, paused, onInspect }) {
   const j = latest ? journey(scn, latest) : null;
-  const realMax = j ? j.total / speed + 50 : 0;
-  const ms = useElapsed(animKey, !!latest, realMax);
-  const t = ms * speed;
+  // run a little past the journey so the arrival pulse and fade-out finish
+  const t = useElapsed(animKey, { enabled: !!latest, max: j ? j.total + 900 : 1, paused, rate: speed });
   const color = latest ? KIND[latest.kind] : 'var(--accent)';
   const state = j ? journeyState(j, t) : null;
 
@@ -26,7 +25,7 @@ export default function NetworkView({ scn, visible, latest, animKey, speed, onIn
     const name = (id) => scn.nodes[id]?.label;
     const p0 = j.path;
     if (state.phase === 'travel') caption = { tag: `Hop ${state.seg + 1}/${j.hops}`, text: `${name(p0[state.seg])} → ${name(p0[state.seg + 1])}: ${latest.label}` };
-    else if (state.phase === 'hold') caption = { tag: name(state.node), text: latest.hold?.[state.node] || HOLD_TEXT[scn.nodes[state.node].type] || 'Forwarding…' };
+    else if (state.phase === 'hold') caption = { tag: name(state.node), text: holdText(scn, latest, state.node), k: state.holdK, key: `hold-${state.node}` };
     else if (state.phase === 'lost') caption = { tag: 'Lost', text: latest.lostWhy || `${latest.label} never arrives. ${latest.note}`, bad: true };
     else caption = { tag: 'Delivered', text: `${targets.map(name).join(' and ')} received it: ${latest.note}` };
   }
@@ -34,8 +33,11 @@ export default function NetworkView({ scn, visible, latest, animKey, speed, onIn
   return (
     <>
       {caption && (
-        <div className={`narrate ${caption.bad ? 'bad' : ''}`} style={{ '--kc': color }} key={caption.tag + caption.text}>
-          <span className="tag">{caption.tag}</span><span>{caption.text}</span>
+        <div className={`narrate ${caption.bad ? 'bad' : ''} ${paused ? 'is-paused' : ''}`} style={{ '--kc': color }} key={caption.key || caption.tag + caption.text} aria-live="polite">
+          <span className="tag">{caption.tag}</span>
+          <span>{caption.text}</span>
+          {paused && <span className="paused-badge">Paused</span>}
+          {caption.k != null && <i className="narrate-timer" style={{ transform: `scaleX(${1 - caption.k})` }} aria-hidden="true" />}
         </div>
       )}
       <svg className="net" viewBox="0 0 1000 520" preserveAspectRatio="xMidYMid meet">
@@ -63,8 +65,8 @@ export default function NetworkView({ scn, visible, latest, animKey, speed, onIn
           return (
             <g key={id} className={`node ${holding || sender || receiver ? 'active' : ''}`} style={{ '--hot': color }} transform={`translate(${n.x} ${n.y})`}>
               {(holding || receiver) && (
-                <circle r={36 + ((holding ? state.holdK : Math.min(1, state.after / 900)) * 30)} fill="none" stroke={color} strokeWidth="2"
-                  opacity={1 - (holding ? (state.holdK * 2) % 1 : Math.min(1, state.after / 900))} />
+                <circle r={36 + (holding ? (state.after % 1400) / 1400 : Math.min(1, state.after / 900)) * 30} fill="none" stroke={color} strokeWidth="2"
+                  opacity={1 - (holding ? (state.after % 1400) / 1400 : Math.min(1, state.after / 900))} />
               )}
               <g className="node-enter">
                 <DeviceIcon type={n.type} />
