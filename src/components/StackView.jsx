@@ -23,7 +23,7 @@ export default function StackView({ scn, packet, animKey, speed, onInspect }) {
         {LAYER_ORDER.map((n) => (
           <div key={n} className="stack-row" style={{ '--lc': LAYERS[n].color }}>
             <span className="n">{n}</span>
-            <span className="t"><b>{LAYERS[n].name}</b> · PDU: {LAYERS[n].pdu}<small>{LAYERS[n].job}</small></span>
+            <span className="t"><b>{LAYERS[n].name}</b>, unit: {LAYERS[n].pdu.toLowerCase()}<small>{LAYERS[n].job}</small></span>
           </div>
         ))}
       </div>
@@ -60,7 +60,7 @@ export default function StackView({ scn, packet, animKey, speed, onInspect }) {
       <div key={side + n} className={`stack-row ${lit ? 'lit' : ''} ${current ? 'cur' : ''} ${ls.length ? '' : 'none'}`} style={{ '--lc': L.color }}>
         <span className="n">{n}</span>
         <span className="t">
-          <b>{L.name}</b> <span style={{ color: 'var(--muted)' }}>· {L.pdu}</span>
+          <b>{L.name}</b> <span style={{ color: 'var(--muted)' }}>{L.pdu.toLowerCase()}</span>
           <small>{ls.length ? `${verb} ${ls.map((l) => `${l.name} (${l.size} B)`).join(' + ')}` : IMPLICIT[n] || 'Nothing at this layer for this packet'}</small>
         </span>
       </div>
@@ -72,7 +72,7 @@ export default function StackView({ scn, packet, animKey, speed, onInspect }) {
     <div className="stack">
       <div className="stack-cols">
         <div className="stack-col">
-          <h4>Sender · {fromN.label} · encapsulate ↓</h4>
+          <h4>Sender: {fromN.label} wraps it</h4>
           {LAYER_ORDER.map((n, i) => row(n, 'send', i <= sendIdx && ms > 0, i === sendingRow))}
         </div>
         <div className="stack-mid">
@@ -81,7 +81,7 @@ export default function StackView({ scn, packet, animKey, speed, onInspect }) {
           <span>{fr.size} B</span>
         </div>
         <div className="stack-col">
-          <h4>Receiver · {toN.label} · decapsulate ↑</h4>
+          <h4>Receiver: {toN.label} unwraps it</h4>
           {LAYER_ORDER.map((n, i) => row(n, 'recv', !packet.lost && 7 - i <= recvIdx, !packet.lost && 7 - i === recvIdx && ms < TOTAL))}
         </div>
       </div>

@@ -131,9 +131,3 @@ export const HOLD_TEXT = {
 
 export const wordsMs = (text = '') => Math.min(16000, Math.max(6000, text.split(/\s+/).length * 230));
 
-export function loadJSON(key, fallback) {
-  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; }
-}
-export function saveJSON(key, v) {
-  try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage unavailable */ }
-}

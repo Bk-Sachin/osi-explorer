@@ -37,5 +37,7 @@ for (const s of SCENARIOS) {
   });
 }
 
-export const byId = Object.fromEntries(SCENARIOS.map((s) => [s.id, s]));
+// Prototype-free lookup: ids coming from cookies or URLs like "constructor" or "__proto__" can't
+// match inherited Object properties.
+export const byId = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(SCENARIOS.map((s) => [s.id, s]))));
 export const byLayer = (n) => SCENARIOS.filter((s) => s.layer === n);

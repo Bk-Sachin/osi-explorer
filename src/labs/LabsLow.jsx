@@ -61,7 +61,7 @@ export function SignalLab() {
 
   return (
     <div>
-      <h3>Signal Lab · Layer 1</h3>
+      <h3>Signal Lab, layer 1</h3>
       <p className="lab-sub">Type a few characters and watch them become bits and then a signal. Add noise and see when the receiver starts misreading bits; Layer 2's checksum is what catches those errors.</p>
       <div className="row">
         <label className="field">Text (≤ 8 chars)<input type="text" value={text} maxLength={8} onChange={(e) => setText(e.target.value)} /></label>
@@ -147,7 +147,7 @@ export function SwitchLab() {
 
   return (
     <div>
-      <h3>Switch Lab · Layer 2</h3>
+      <h3>Switch Lab, layer 2</h3>
       <p className="lab-sub">Send frames between four hosts. A switch learns which MAC address lives on which port from the source of every frame, floods unknown destinations, and then forwards precisely. Flip to Hub mode to see the old, wasteful way.</p>
       <div className="row">
         <div className="seg">{['switch', 'hub'].map((m) => <button key={m} className={mode === m ? 'on' : ''} onClick={() => { setMode(m); setTable({}); setLog([]); }}>{m === 'switch' ? 'Switch (L2)' : 'Hub (L1)'}</button>)}</div>
@@ -234,7 +234,7 @@ export function RoutingLab() {
 
   return (
     <div>
-      <h3>Routing Lab · Layer 3</h3>
+      <h3>Routing Lab, layer 3</h3>
       <p className="lab-sub">An IPv4 address is 32 bits: the prefix length says how many of them name the network. Routers forward by finding every route that matches the destination and picking the most specific one (longest prefix match).</p>
       <div className="grid2">
         <div className="panel-box">

@@ -65,7 +65,7 @@ export function TransportLab() {
 
   return (
     <div>
-      <h3>Transport Lab · Layer 4</h3>
+      <h3>Transport Lab, layer 4</h3>
       <p className="lab-sub">Send a file as numbered segments over a lossy network. TCP keeps a window of unacknowledged segments in flight, notices gaps through duplicate ACKs or timeouts, and retransmits. Switch to UDP to see what "no guarantees" means.</p>
       <div className="row">
         <div className="seg">{['tcp', 'udp'].map((p) => <button key={p} className={proto === p ? 'on' : ''} onClick={() => { setProto(p); reset(); }}>{p.toUpperCase()}</button>)}</div>
@@ -145,7 +145,7 @@ export function SessionLab() {
 
   return (
     <div>
-      <h3>Session Lab · Layer 5</h3>
+      <h3>Session Lab, layer 5</h3>
       <p className="lab-sub">A session outlives individual connections. Connect, log in, drop the connection, and reconnect: see how TLS tickets avoid repeating the expensive handshake and how the session cookie keeps you logged in until it expires or you log out.</p>
       <div className="row">
         <button className="btn primary" onClick={act.connect}>Connect</button>
@@ -226,7 +226,7 @@ export function PresentationLab() {
 
   return (
     <div>
-      <h3>Presentation Lab · Layer 6</h3>
+      <h3>Presentation Lab, layer 6</h3>
       <p className="lab-sub">Follow your text through the presentation pipeline exactly as HTTPS does it: characters → bytes (encoding) → fewer bytes (gzip) → unreadable bytes (AES-GCM, real Web Crypto) → and all the way back. Tamper with one bit to see integrity protection reject it.</p>
       <div className="row">
         <label className="field" style={{ flex: 1, minWidth: 260 }}>Your text<input type="text" value={text} onChange={(e) => setText(e.target.value)} /></label>
@@ -315,7 +315,7 @@ export function HttpLab() {
 
   return (
     <div>
-      <h3>HTTP Lab · Layer 7</h3>
+      <h3>HTTP Lab, layer 7</h3>
       <p className="lab-sub">Build a raw HTTP request and send it to a pretend API. Try the presets, then experiment: different methods, a JSON body, or add <code>Authorization: Bearer letmein</code> to get into /admin.</p>
       <div className="row" style={{ marginBottom: 8 }}>
         {PRESETS.map(([m, p, b]) => <button key={m + p} className="btn sm" onClick={() => { setMethod(m); setPath(p); setBody(b); }}>{m} {p}</button>)}

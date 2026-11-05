@@ -11,6 +11,41 @@ npm run dev        # http://localhost:5173
 npm run build      # static site in dist/
 ```
 
+To test the production build with the same security headers as Vercel (CSP etc.):
+
+```bash
+npm run preview:secure   # http://localhost:4173
+```
+
+## Site structure
+
+| Page | What it's for |
+|---|---|
+| Home `#/` | Interactive "envelope" showing what each layer wraps; continue ticket; every lesson by layer |
+| Lessons `#/lessons` | All lessons with status (not started / in progress / finished) and filters |
+| Lesson `#/lesson/<id>` | Step rail, animated stage, notes, packet log; resumes where you stopped |
+| Review `#/review` | Spaced-repetition cards made from your quiz answers (Leitner boxes: 0, 1, 3, 7, 21 days) |
+| Passport `#/passport` | A postmark stamp per finished lesson, stats, and exactly what's stored |
+| Study / Labs `#/study/<1-7>`, `#/labs/<1-7>` | Reference guides and sandboxes for each layer |
+
+## Progress, cookies and security
+
+Progress lives in one first-party cookie (`__Host-osi` over HTTPS, `osi` on plain-HTTP localhost). No server reads it, and there are no accounts.
+
+- **What's stored:** where you stopped in each lesson, whether you finished it, your best quiz score, your review cards, your streak and your theme. Nothing personal. The UI tab and speed are kept in `sessionStorage` and cleared when the tab closes.
+- **`__Host-` prefix:** must be `Secure`, `Path=/`, with no `Domain`, so a sibling subdomain can't plant or overwrite the cookie (cookie tossing).
+- **`SameSite=Strict`:** the cookie is never sent with cross-site requests.
+- **Strict parser** (`src/lib/progress.js`):
+  - The whole value must match a fixed grammar of `[a-z0-9:.~|]` and be under 3,900 characters.
+  - Every id must be a real lesson. The lookup is prototype-free, so `constructor` or `__proto__` can't match anything.
+  - Every number is range-clamped.
+  - Anything invalid is discarded, never evaluated.
+- **Never rendered or reused:** cookie values aren't rendered as HTML (there's no `dangerouslySetInnerHTML` anywhere) and aren't used to build URLs. Route params go through the same allow-list.
+- **HTTP headers** (`vercel.json`):
+  - a strict Content-Security-Policy: no inline scripts, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'none'`, `form-action 'none'`
+  - `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, COOP/CORP, a Permissions-Policy and HSTS
+- **Not HttpOnly:** cookies set by JavaScript can't be HttpOnly. That's acceptable here because nothing secret is stored, and tampering can only change the tamperer's own progress.
+
 ## What's inside
 
 **20 guided lessons** (open with ☰ Lessons, or the 1–7 layer buttons). Each step has a "Deep dive" with extra detail:

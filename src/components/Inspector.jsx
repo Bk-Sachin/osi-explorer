@@ -39,7 +39,7 @@ export default function Inspector({ scn, no, maxNo, onNav, onClose, srcOf, dstOf
         <span className="no" style={{ display: 'inline-grid', placeItems: 'center', width: 26, height: 26, borderRadius: '50%', background: color, color: '#0a0e17', fontWeight: 700 }}>{pk.no}</span>
         <div className="grow">
           <h3>{pk.label}</h3>
-          <small>{pk.t.toFixed(3)}s · {srcOf(pk)} → {dstOf(pk)} · {pk.proto} · {fmtSize(pk.frame.size)}</small>
+          <small>{srcOf(pk)} → {dstOf(pk)}, {pk.proto}, {fmtSize(pk.frame.size)}, at {pk.t.toFixed(3)}s</small>
         </div>
         {pk.decrypted && (
           <div className="toggle" title="TLS hides this content; with the session keys you could see it">
@@ -59,7 +59,7 @@ export default function Inspector({ scn, no, maxNo, onNav, onClose, srcOf, dstOf
             <div key={i} style={{ flex: Math.max(l.size, fr.size * 0.06) }}>
               <i style={{ background: LAYERS[l.osi].color }} />
               <span>{l.name}</span>
-              <small>L{l.osi} · {l.size} B</small>
+              <small>Layer {l.osi}, {l.size} B</small>
             </div>
           ))}
         </div>
@@ -69,7 +69,7 @@ export default function Inspector({ scn, no, maxNo, onNav, onClose, srcOf, dstOf
         <div className="insp-fields">
           {fr.layers.map((l, li) => (
             <div key={li} className="insp-layer" style={{ '--lc': LAYERS[l.osi].color }}>
-              <h4>{l.name} · {l.size} bytes <small>{l.summary}</small><span className="osi">Layer {l.osi} · {LAYERS[l.osi].name}</span></h4>
+              <h4>{l.name}, {l.size} bytes <small>{l.summary}</small><span className="osi">Layer {l.osi}, {LAYERS[l.osi].name}</span></h4>
               {l.fields.map((f, fi) => (
                 <div key={fi} className={`fld ${hl && hl.start === f.start && hl.end === f.end ? 'hl' : ''}`}
                   onMouseEnter={() => setHl({ start: f.start, end: f.end })} onMouseLeave={() => setHl(null)}>
@@ -84,7 +84,7 @@ export default function Inspector({ scn, no, maxNo, onNav, onClose, srcOf, dstOf
           ))}
         </div>
         <div className="insp-hex">
-          <div className="hh">Bytes · {fr.size} in this {mode === 'decrypted' ? 'decrypted payload' : 'frame'}</div>
+          <div className="hh">{fr.size} bytes in this {mode === 'decrypted' ? 'decrypted payload' : 'frame'}</div>
           {shownRows.map((off) => {
             const slice = fr.bytes.slice(off, off + 16);
             return (
@@ -115,7 +115,7 @@ export default function Inspector({ scn, no, maxNo, onNav, onClose, srcOf, dstOf
       <div className="modal-foot">
         <span><span className="eg" style={{ marginLeft: 0 }}>E.G.</span> example value: differs in every real capture</span>
         <span>·· bytes the lesson can't show: encrypted, random or file contents</span>
-        <span>Hover a field or a byte to link them · ← → to step through packets · Esc to close</span>
+        <span>Hover a field or a byte to link them. Arrow keys move between packets; Esc closes.</span>
       </div>
     </div>
   );

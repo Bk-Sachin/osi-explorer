@@ -51,7 +51,7 @@ export default function StudyView({ layer, setLayer, onPick }) {
         ))}
       </div>
       <div className="lab study" style={{ '--lc': L.color }}>
-        <div className="kicker" style={{ color: L.color }}>Study guide · Layer {layer} · PDU: {L.pdu}</div>
+        <div className="kicker" style={{ color: L.color }}>Layer {layer} study guide. Its unit of data is called a {L.pdu.toLowerCase()}.</div>
         <h3>{S.title}</h3>
         <p className="lab-sub" style={{ fontSize: 12.5, color: 'var(--text)' }}>{S.purpose}</p>
         <p className="lab-sub"><b>In the TCP/IP model:</b> {S.tcpip}</p>
